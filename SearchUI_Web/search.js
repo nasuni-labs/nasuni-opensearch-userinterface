@@ -1,6 +1,6 @@
 // Update this variable to point to your domain.
-var apigatewayendpoint = 'https://u1swlszspg.execute-api.us-east-2.amazonaws.com/dev/search-es';
-var volume_api = 'https://u1swlszspg.execute-api.us-east-2.amazonaws.com/dev/es-volume';
+var apigatewayendpoint = 'https://jrol9tzdwc.execute-api.us-east-2.amazonaws.com/dev/search-es';
+var volume_api = 'https://jrol9tzdwc.execute-api.us-east-2.amazonaws.com/dev/es-volume';
 var loadingdiv = $('#loading');
 var noresults = $('#noresults');
 var resultdiv = $('#results');
@@ -9,8 +9,9 @@ var timer = 0;
 var arr = [];
 var responseArr = [];
 var volume;
+var volSelect;
 let pagiResults = 1;
-var dataLen = 4;
+var dataLen = 3;
 var index = 0;
 var numArr = []
 
@@ -21,18 +22,18 @@ searchbox.keyup(function() {
 });
 
 function dropDownData(period) {
+    volSelect=""
     volume = period;
     console.log(period);
+    if(searchbox.val()!=""){
+        search();
+      }
 }
 
 function paginationData(period) {
-    if (period > 0) {
         pagiResults = period;
         console.log(pagiResults + "   pagination page number");
-
         indexChange();
-    }
-
 }
 
 async function search() {
@@ -61,9 +62,8 @@ async function search() {
         // Make the HTTP request with the query as a parameter and wait for the JSON results
         let response_data = await $.get(apigatewayendpoint, { q: query, size: 25 }, 'json');
         console.log(response_data);
-        //console.log(response,'response...');
+
         // Get the part of the JSON response that we care about
-        //let results = response['hits']['hits'];
         if (response_data.length > 0) {
             loadingdiv.hide();
             noresults.hide();
@@ -80,6 +80,17 @@ async function search() {
 
 //Iterate volume names from API to drop down menu
 async function start() {
+    const urlParams = new URLSearchParams(location.search);
+    volSelect=  urlParams.get('q');
+    if(volSelect!=null){
+        volume = volSelect
+        document.getElementById("defVal").value=volSelect
+        document.getElementById("defVal").innerText=volSelect
+    }else{
+        document.getElementById("defVal").value="none"
+        document.getElementById("defVal").innerText="Select Volume"
+    }
+    console.log(volSelect)
     response = await $.get(volume_api, 'json');
     arr = response.split(",");
     var chars = ['[', ']', '\\', '"'];
@@ -98,21 +109,26 @@ function replaceAll(chars) {
         }
 
     }
-    console.log(arr);
     appendDropDown(arr);
 }
 
 //Appending from volume name array to drop down
 function appendDropDown(arr) {
-    var select = document.getElementById("selectVolume");
+
+
+    var selectOpt = document.getElementById("selectVolume");
+    
+    console.log(volSelect)
+    
     for (var i = 0; i < arr.length; i++) {
         var opt = arr[i];
         var el = document.createElement("option");
+        
+        
         el.textContent = opt;
         el.value = opt;
-        select.appendChild(el);
-    }
-
+        selectOpt.appendChild(el);
+    }    
 }
 
 
@@ -122,22 +138,19 @@ function indexChange() {
         numArr.push(y);
     }
     numArr = [...new Set(numArr)]
-        // console.log()
     index = numArr[pagiResults - 1]
+
     resultdiv.empty();
     resultdiv.append('<p class="result-status">Found ' + responseArr.length + ' results.</p>');
-    console.log(numArr + " this is new numArr");
     noresults.hide();
-
     loadingdiv.hide();
-    appendData(resultdiv, responseArr);
 
+    appendData(resultdiv, responseArr);
 }
 
 //Appending all the results to the main resultdiv 
 function appendData(resultdiv, data) {
-    console.log("dataLen" + dataLen)
-    for (var i = index; i < dataLen + index; i++) {
+    for (var i = index; i < dataLen + index ; i++) {
         var link = document.createElement("h5");
         var content = document.createElement("span");
         var resultBox = document.createElement("div");
@@ -145,7 +158,7 @@ function appendData(resultdiv, data) {
         resultBox.classList.add("result-box");
         spanDiv.classList.add("result-content");
 
-        if (data[i].length > 0) {
+        if (data[i].length >= 0) {
 
             for (var j = 0; j < data[i].length; j++) {
                 link.innerHTML = "<a class='elasti_link result-title' href=" + data[i][j]._source.access_url + ">" + data[i][j]._source.object_key + "</a>" + "<br>";
@@ -165,25 +178,24 @@ function appendData(resultdiv, data) {
             stop();
 
         }
-
+        paginationTrigger(data)
     }
-    if (data.length > 0 && pagiResults > 0) {
+    
+    
+}
+
+function paginationTrigger(data){
+    if (pagiResults > 0) {
         var totalPages = data.length / dataLen;
-        console.log(totalPages + "=============");
         if (totalPages % 1 != 0) {
             totalPages = Math.trunc(totalPages + 1)
         }
-        if (pagiResults < totalPages) {
-            var page = Number(pagiResults);
-        } else if (pagiResults == totalPages) {
-            var page = totalPages;
-        }
-        console.log(page + "   ::::::::::::::::::::::::")
 
-
+        page = Number(pagiResults);
         var paginationDiv = document.getElementById('pagination');
         var ul = document.createElement('ul')
         paginationDiv.append(ul);
+    
         createPagination(totalPages, page);
     }
 }
