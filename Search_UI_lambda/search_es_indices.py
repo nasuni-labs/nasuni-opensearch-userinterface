@@ -3,15 +3,18 @@ import json
 import logging
 import pprint
 import subprocess
+import os
 
 import elasticsearch
-import os
+
 import boto3
 from datetime import *
 from botocore.exceptions import ClientError
+# from awscli.errorhandler import ClientError
 from elasticsearch.connection.http_requests import RequestsHttpConnection
 from requests_aws4auth import AWS4Auth
 
+from elasticsearch import Elasticsearch, helpers
 from elasticsearch import Elasticsearch, helpers
 import requests
 from requests.auth import HTTPBasicAuth
@@ -27,7 +30,6 @@ def lambda_handler(event, context):
     role = 'arn:aws:iam::'+account_id+':role/nasuni-labs-exec_role-SearchUI-'+u_id
     
     secret_nct_nce_admin = get_secret('nasuni-labs-os-admin', runtime_region)
-
     
     username = secret_nct_nce_admin['nac_es_admin_user']
     secret_es_region = secret_nct_nce_admin['es_region']
@@ -41,6 +43,7 @@ def lambda_handler(event, context):
 
     password = secret_nct_nce_admin['nac_es_admin_password']
     data_file_obj = '/tmp/data.json'
+
     merge_link = '\"https://'+link+'_opendistro/_security/api/rolesmapping/all_access\"'
     url = 'https://' + link + '_opendistro/_security/api/rolesmapping/all_access/' 
 
@@ -49,7 +52,8 @@ def lambda_handler(event, context):
     response = requests.put(url, auth=HTTPBasicAuth(username, password), headers=headers, data=role_data)
     print(response.text)
     es = launch_es(secret_nct_nce_admin['nac_es_url'], secret_es_region)
-    resp = search(es)
+
+    resp = search(es, event)
     response = {
         "statusCode": 200,
         "headers": {
@@ -57,12 +61,15 @@ def lambda_handler(event, context):
         },
         "isBase64Encoded": False
     }
+    print('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxxx')
+    
     response['body'] = json.dumps(resp)
+    print(response['body']) 
     return response
 
 
 def launch_es(link, region):
-    # region = 'us-east-2'
+
     service = 'es'
     credentials = boto3.Session().get_credentials()
     print()
@@ -73,24 +80,74 @@ def launch_es(link, region):
     return es
 
 
-def search(es):
-    vol_list=[]
+def search(es, event):
+    docs_list=[]
+    print('event', event)
+    print('queryStringParameters', event['queryStringParameters']['q'])
+    char = '~'
+    if char in event['queryStringParameters']['q']:
+        l_search_term=event['queryStringParameters']['q'].split('~')
+        search_query=l_search_term[0]
+        volume_name=l_search_term[1]
+    else:
+        search_query=event['queryStringParameters']['q']
+        volume_name=''
     try:
         for elem in es.cat.indices(format="json"):
-            query = {"query": {"match_all": {}}}
+            if not volume_name:
+                query = {
+                    "query": {
+                        "match": {
+                            "content": search_query
+                        }
+                    },
+                    "highlight": {
+                        "pre_tags": [
+                            "<strong>"
+                        ],
+                        "post_tags": [
+                            "</strong>"
+                        ],
+                        "fields": {
+                            "content": {}
+                        }
+                    }
+                }
+            else:
+                query = {
+                   "query": {
+                    "bool": {
+                     "must": [
+                            {
+                                "match": {"content": search_query}
+                            },
+                            {
+                            "match": {"volume_name": volume_name}
+                            }
+                            ]
+                         }
+                        },
+                    "highlight": {
+                        "pre_tags": [
+                            "<strong>"
+                        ],
+                        "post_tags": [
+                            "</strong>"
+                        ],
+                        "fields": {
+                            "content": {}
+                        }
+                    }
+                }
+
+            print('elem in for loop',elem)
             resp = es.search(index=elem['index'], body=query)
-            for i in resp['hits']['hits']:
-                idx_content = i['_source'].get('content', 0)
-                idx_object_key = i['_source'].get('object_key', 0)
-                volume_name = i['_source'].get('volume_name', 0)
-                
-                if volume_name != 0: 
-                    if not vol_list :
-                        vol_list.append(volume_name)
-                    elif volume_name not in vol_list:
-                        vol_list.append(volume_name)
-        print(vol_list)
-        return vol_list
+            if resp['hits']['hits']:
+                print(resp['hits']['hits'])
+                docs_list+=[resp['hits']['hits']]
+            
+            
+        return docs_list
     except Exception as e:
         logging.error('ERROR: {0}'.format(str(e)))
         logging.error('ERROR: Unable to index line:"{0}"'.format(str(event)))
